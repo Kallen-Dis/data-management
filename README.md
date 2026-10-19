@@ -2,6 +2,8 @@
 
 > 当代数据管理课程项目（第一阶段）。技术栈：**FastAPI + MongoDB + Vue 3 + ECharts**。
 
+GitHub 仓库：[https://github.com/Kallen-Dis/data-management](https://github.com/Kallen-Dis/data-management)
+
 ## 目录结构
 
 ```
