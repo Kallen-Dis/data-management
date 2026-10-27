@@ -9,11 +9,13 @@
 6. 唯一索引 {survey_id, respondent_key} 原子防重复提交；
 7. stats $inc 原子更新计数。
 """
+import logging
 import secrets
+from copy import deepcopy
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.db import responses as responses_col
 from app.db import surveys as surveys_col
@@ -22,6 +24,7 @@ from app.models.schemas import SubmitRequest
 from app.services import jump_engine, stats_service, validator
 
 router = APIRouter(prefix="/api/s", tags=["fill"])
+logger = logging.getLogger(__name__)
 
 
 def _find_by_token(token: str) -> dict:
@@ -137,18 +140,16 @@ def submit_response(token: str, req: SubmitRequest,
     # ---- 5. 问卷快照：提交瞬间的题目结构 ----
     snapshot = {
         "title": s["title"],
-        "questions": [
-            {"qid": q["qid"], "type": q["type"], "title": q["title"],
-             "options": q.get("options", [])}
-            for q in s["questions"]
-        ],
+        "questions": deepcopy(s["questions"]),
     }
 
     resp_doc = {
+        "schema_version": 2,
         "survey_id": s["_id"],
         "survey_version": s["version"],
         "snapshot": snapshot,
         "answers": saved_answers,
+        "visited_qids": visited,
         "respondent": {
             "user_id": user["_id"] if user else None,
             "username": user["username"] if user else None,
@@ -158,13 +159,18 @@ def submit_response(token: str, req: SubmitRequest,
         "submitted_at": datetime.now(timezone.utc),
         "spent_seconds": req.spent_seconds,
     }
-    stats_service.ensure_stats_version(s["_id"])
+    stats_revision = stats_service.ensure_stats_version(s["_id"])
     try:
         responses_col().insert_one(resp_doc)
     except DuplicateKeyError:
         raise HTTPException(409, "你已经提交过这份问卷")
 
     # ---- 6. 预聚合计数：$inc 原子更新 ----
-    stats_service.apply_submission(s, saved_answers, visited)
+    stats_pending = False
+    try:
+        stats_service.apply_submission(s, saved_answers, visited, stats_revision)
+    except (PyMongoError, RuntimeError):
+        stats_pending = True
+        logger.exception("答卷已保存，统计缓存等待下次读取时重建：survey=%s", s["_id"])
 
-    return {"ok": True, "visited": visited, "submitted_at": resp_doc["submitted_at"]}
+    return {"ok": True, "visited": visited, "submitted_at": resp_doc["submitted_at"], "stats_pending": stats_pending}

@@ -5,6 +5,7 @@
 - 保存时执行结构校验 + 环检测（拒绝）+ 死题检测（返回 warnings）
 """
 import secrets
+from copy import deepcopy
 from datetime import datetime, timezone
 
 from bson import ObjectId
@@ -12,11 +13,23 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import stats as stats_col
 from app.db import surveys as surveys_col
+from app.db import users as users_col
+from app.db import question_series
 from app.deps import get_current_user
-from app.models.schemas import SurveyCreate, SurveyUpdate
-from app.services import jump_engine, stats_service
+from app.models.schemas import StatsSharingUpdate, SurveyCreate, SurveyUpdate
+from app.serialization import json_value
+from app.services import jump_engine, question_service, stats_service
 
 router = APIRouter(prefix="/api/surveys", tags=["surveys"])
+
+
+def _locked(document):
+    return bool(document.get("ever_published") or document.get("published_at") or document["status"] in ("published", "closed"))
+
+
+def _write_filter(document):
+    return {"_id": document["_id"], "version": document["version"], "status": document["status"],
+        "ever_published": document.get("ever_published") if "ever_published" in document else {"$exists": False}}
 
 
 def _get_owned(survey_id: str, user: dict) -> dict:
@@ -69,7 +82,10 @@ def _out(doc: dict) -> dict:
         "share_token": doc["share_token"],
         "share_url": f"/s/{doc['share_token']}",
         "version": doc["version"],
-        "questions": doc["questions"],
+        "questions": json_value(doc["questions"]),
+        "ever_published": _locked(doc),
+        "schema_version": doc.get("schema_version", 1),
+        "question_stats_shares": json_value(doc.get("question_stats_shares", [])),
         "created_at": _iso(doc.get("created_at")),
         "updated_at": _iso(doc.get("updated_at")),
         "response_total": total,
@@ -78,7 +94,7 @@ def _out(doc: dict) -> dict:
 
 @router.post("", status_code=201)
 def create_survey(req: SurveyCreate, user: dict = Depends(get_current_user)):
-    questions = [q.model_dump() for q in req.questions]
+    questions = question_service.resolve_instances([question.model_dump(exclude_unset=True) for question in req.questions], user)
     questions, _ = _normalize_questions(questions)
     now = datetime.now(timezone.utc)
     doc = {
@@ -92,6 +108,8 @@ def create_survey(req: SurveyCreate, user: dict = Depends(get_current_user)):
         "deadline": req.deadline,
         "share_token": secrets.token_urlsafe(6),
         "version": 1,
+        "schema_version": 2,
+        "ever_published": False,
         "questions": questions,
         "created_at": now,
         "updated_at": now,
@@ -119,11 +137,13 @@ def update_survey(survey_id: str, req: SurveyUpdate, user: dict = Depends(get_cu
     if req.version != doc["version"]:
         raise HTTPException(409, "问卷已被其他页面修改，请刷新后重试")
 
-    questions = [q.model_dump() for q in req.questions]
+    questions = question_service.resolve_instances([question.model_dump(exclude_unset=True) for question in req.questions], user, doc)
     questions, warnings = _normalize_questions(questions)
+    if _locked(doc) and questions != doc["questions"]:
+        raise HTTPException(409, "已发布问卷的题目结构已锁定，请复制为新草稿后修改")
 
     result = surveys_col().update_one(
-        {"_id": doc["_id"], "version": req.version},
+        _write_filter(doc),
         {"$set": {
             "title": req.title,
             "description": req.description,
@@ -131,6 +151,7 @@ def update_survey(survey_id: str, req: SurveyUpdate, user: dict = Depends(get_cu
             "allow_multiple_submissions": req.allow_multiple_submissions,
             "deadline": req.deadline,
             "questions": questions,
+            "schema_version": 2,
             "updated_at": datetime.now(timezone.utc),
         }, "$inc": {"version": 1}},
     )
@@ -153,10 +174,15 @@ def publish_survey(survey_id: str, user: dict = Depends(get_current_user)):
             raise HTTPException(400, f"题目 {question['qid']} 至少需要一个选项")
         if not question.get("title", "").strip():
             raise HTTPException(400, f"第 {question.get('order', 0)} 题缺少题目内容")
-    surveys_col().update_one(
-        {"_id": doc["_id"]},
-        {"$set": {"status": "published", "published_at": datetime.now(timezone.utc)}},
+    questions, _ = _normalize_questions(deepcopy(doc["questions"]))
+    sealed = question_service.seal_instances({**doc, "questions": questions}, user)
+    result = surveys_col().update_one(
+        _write_filter(doc),
+        {"$set": {"status": "published", "published_at": doc.get("published_at") or datetime.now(timezone.utc),
+            "ever_published": True, "questions": sealed, "schema_version": 2, "updated_at": datetime.now(timezone.utc)}, "$inc": {"version": 1}},
     )
+    if result.matched_count != 1:
+        raise HTTPException(409, "问卷已发生变化，请刷新后重新发布")
     return _out(surveys_col().find_one({"_id": doc["_id"]}))
 
 
@@ -165,8 +191,66 @@ def close_survey(survey_id: str, user: dict = Depends(get_current_user)):
     doc = _get_owned(survey_id, user)
     if doc["status"] != "published":
         raise HTTPException(409, "当前状态不可关闭")
-    surveys_col().update_one(
-        {"_id": doc["_id"]},
-        {"$set": {"status": "closed"}},
+    result = surveys_col().update_one(
+        _write_filter(doc),
+        {"$set": {"status": "closed", "ever_published": True, "updated_at": datetime.now(timezone.utc)}, "$inc": {"version": 1}},
     )
+    if result.matched_count != 1:
+        raise HTTPException(409, "问卷已发生变化，请刷新后重试")
     return _out(surveys_col().find_one({"_id": doc["_id"]}))
+
+
+@router.post("/{survey_id}/clone", status_code=201)
+def clone_survey(survey_id: str, user: dict = Depends(get_current_user)):
+    source = _get_owned(survey_id, user)
+    questions = question_service.resolve_instances(json_value(source["questions"]), user)
+    timestamp = datetime.now(timezone.utc)
+    document = {"title": (source["title"][:90] + "（副本）"), "description": source.get("description", ""), "owner_id": user["_id"],
+        "questions": questions, "allow_anonymous": source.get("allow_anonymous", False), "allow_multiple_submissions": source.get("allow_multiple_submissions", False),
+        "deadline": None, "status": "draft", "published_at": None, "ever_published": False, "version": 1,
+        "schema_version": 2, "share_token": secrets.token_urlsafe(9), "created_at": timestamp, "updated_at": timestamp}
+    document["_id"] = surveys_col().insert_one(document).inserted_id
+    stats_service.init_stats(document)
+    return _out(document)
+
+
+@router.post("/{survey_id}/questions/{qid}/library")
+def save_question_to_library(survey_id: str, qid: str, user: dict = Depends(get_current_user)):
+    document = _get_owned(survey_id, user)
+    question = next((item for item in document["questions"] if item["qid"] == qid), None)
+    if question is None:
+        raise HTTPException(404, "题目不存在")
+    if question.get("question_version_id"):
+        version, series = question_service.get_version(question["question_version_id"], user)
+        if series["owner_id"] == user["_id"]:
+            question_series().update_one({"_id": series["_id"]}, {"$set": {"listed": True, "updated_at": datetime.now(timezone.utc)}, "$inc": {"revision": 1}})
+            series = question_service.raw_series(series["_id"])
+    else:
+        series, version = question_service.create_series(question, user)
+        questions = deepcopy(document["questions"])
+        for item in questions:
+            if item["qid"] == qid:
+                item.update({"question_series_id": series["_id"], "question_version_id": version["_id"]})
+        if surveys_col().update_one(_write_filter(document), {"$set": {"questions": questions, "schema_version": 2}, "$inc": {"version": 1}}).matched_count != 1:
+            raise HTTPException(409, "题目已存入题目中心，但问卷已变化，请刷新后选用")
+    return {"question": question_service.series_view(series, user), "survey": _out(_get_owned(survey_id, user))}
+
+
+@router.put("/{survey_id}/question-stats-sharing")
+def set_question_stats_sharing(survey_id: str, request: StatsSharingUpdate, user: dict = Depends(get_current_user)):
+    document = _get_owned(survey_id, user)
+    allowed_versions = {question.get("question_version_id") for question in document["questions"] if question.get("question_version_id")}
+    grants = []
+    for grant in request.grants:
+        version = question_service.raw_version(grant.question_version_id)
+        recipient = users_col().find_one({"username": grant.username})
+        if version["_id"] not in allowed_versions:
+            raise HTTPException(400, "只能授权此问卷实际使用的题目版本")
+        if recipient is None:
+            raise HTTPException(404, "被授权用户不存在")
+        item = {"question_version_id": version["_id"], "grantee_id": recipient["_id"], "username": recipient["username"], "permission": "aggregate"}
+        if item not in grants:
+            grants.append(item)
+    if surveys_col().update_one({"_id": document["_id"], "version": request.version}, {"$set": {"question_stats_shares": grants}, "$inc": {"version": 1}}).matched_count != 1:
+        raise HTTPException(409, "问卷已更新，请刷新后重试")
+    return _out(_get_owned(survey_id, user))

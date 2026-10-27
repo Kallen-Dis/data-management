@@ -73,6 +73,11 @@ class TestSubmit:
         body["questions"] = body["questions"][:3]
         r = client.put(f"/api/surveys/{s['id']}", json={**body, "version": s["version"]},
                        headers=auth_header(token))
+        assert r.status_code == 409
+
+        clone = client.post(f"/api/surveys/{s['id']}/clone", headers=auth_header(token))
+        assert clone.status_code == 201
+        r = client.put(f"/api/surveys/{clone.json()['id']}", json={**body, "version": clone.json()["version"]}, headers=auth_header(token))
         assert r.status_code == 200
 
         det = client.get(f"/api/surveys/{s['id']}/responses", headers=auth_header(token))
@@ -80,7 +85,7 @@ class TestSubmit:
         qids = list(snap["answers"].keys())
         # 快照中 q4 仍存在（旧数据完整保留）
         assert "q4" in qids
-        assert snap["survey_version"] == 1
+        assert snap["survey_version"] == s["version"]
 
     def test_requires_login_when_not_anonymous(self, client):
         token = register(client)

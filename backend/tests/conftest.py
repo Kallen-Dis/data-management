@@ -9,12 +9,36 @@ from fastapi.testclient import TestClient
 from app.db import get_db, init_db
 from app.main import app
 
-COLLECTIONS = ("users", "surveys", "responses", "stats")
+if os.getenv("SURVEY_TEST_MOCK") == "1":
+    import mongomock
+    import app.db as database_module
+    database_module._client = mongomock.MongoClient()
+
+    def ensure_mock_collection(database, name, schema):
+        if name not in database.list_collection_names():
+            database.create_collection(name)
+
+    database_module._ensure_collection = ensure_mock_collection
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "mongo: requires real MongoDB aggregation")
+
+
+def pytest_collection_modifyitems(items):
+    if os.getenv("SURVEY_TEST_MOCK") == "1":
+        for item in items:
+            if "mongo" in item.keywords:
+                item.add_marker(pytest.mark.skip(reason="MongoDB 聚合需在真实数据库回归中执行"))
+
+COLLECTIONS = ("users", "surveys", "responses", "stats", "question_series", "question_versions", "question_banks", "question_bank_items", "legacy_question_bindings")
 
 
 @pytest.fixture(autouse=True)
 def clean_db():
     """每个测试用例前后清空测试库，保证用例相互独立。"""
+    if not get_db().name.endswith("_test"):
+        raise RuntimeError("测试只允许使用名称以 _test 结尾的数据库")
     init_db()
     db = get_db()
     for name in COLLECTIONS:

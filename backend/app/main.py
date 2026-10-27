@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.db import init_db
-from app.routers import auth, stats, submit, surveys
+from app.routers import auth, question_banks, question_stats, questions, stats, submit, surveys
 
 
 @asynccontextmanager
@@ -17,7 +17,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="SurveyGo 问卷星球 API",
     description="基于 MongoDB 的问卷系统 —— 自动生成的 OpenAPI 文档即 API 说明",
-    version="1.0.0",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -34,6 +34,9 @@ app.include_router(auth.router)
 app.include_router(surveys.router)
 app.include_router(submit.router)
 app.include_router(stats.router)
+app.include_router(questions.router)
+app.include_router(question_banks.router)
+app.include_router(question_stats.router)
 
 
 @app.get("/healthz", tags=["system"])

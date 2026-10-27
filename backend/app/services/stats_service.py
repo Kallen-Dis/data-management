@@ -94,21 +94,26 @@ def _option_label_paths(survey: dict) -> dict[str, str]:
     return labels
 
 
-def apply_submission(survey: dict, answers: dict, visited: list[str]):
+def apply_submission(survey: dict, answers: dict, visited: list[str], expected_revision: int | None = None):
     """提交后原子更新 stats（$inc 单文档原子操作，并发不丢数）。"""
     inc = _inc_paths(survey, answers, visited)
     inc["revision"] = 1
-    stats_col().update_one(
-        {"survey_id": survey["_id"]},
+    if expected_revision is None:
+        return rebuild_stats(survey["_id"])
+    result = stats_col().update_one(
+        {"survey_id": survey["_id"], "revision": expected_revision},
         {"$inc": inc, "$set": {**_option_label_paths(survey), "stats_version": 2}},
-        upsert=True,
     )
+    if not result.matched_count:
+        return rebuild_stats(survey["_id"])
 
 
 def ensure_stats_version(survey_id: ObjectId):
     current = stats_col().find_one({"survey_id": survey_id})
     if current and current.get("total", 0) and current.get("stats_version") != 2:
         rebuild_stats(survey_id)
+        current = stats_col().find_one({"survey_id": survey_id})
+    return current.get("revision", 0) if current else 0
 
 
 def _read_counts(counts, options: list[str]) -> list[int]:
@@ -125,7 +130,8 @@ def _read_counts(counts, options: list[str]) -> list[int]:
 def get_stats_view(survey: dict) -> dict:
     """快通道：读取预聚合文档，组装前端可直接渲染的统计视图。"""
     s = stats_col().find_one({"survey_id": survey["_id"]})
-    if s and s.get("total", 0) and s.get("stats_version") != 2:
+    response_count = responses_col().count_documents({"survey_id": survey["_id"]})
+    if (s is None and response_count) or (s and (s.get("total", 0) != response_count or s.get("stats_version") != 2)):
         rebuild_stats(survey["_id"])
         s = stats_col().find_one({"survey_id": survey["_id"]})
     base = s if s else {"total": 0, "questions": {}}

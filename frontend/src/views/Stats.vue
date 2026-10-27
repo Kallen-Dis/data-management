@@ -126,7 +126,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import * as echarts from 'echarts'
+import * as echarts from '../charts'
 import api from '../api'
 import { TYPE_LABELS } from '../jump'
 

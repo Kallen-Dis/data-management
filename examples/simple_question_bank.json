@@ -1,0 +1,68 @@
+{
+  "key": "campus-life-v1",
+  "name": "校园生活示例题库",
+  "description": "用于课程演示的六道常用题，覆盖单选、多选、数字和文本。所有题目初始固定为 v1，不包含真实个人数据或模拟答卷。",
+  "questions": [
+    {
+      "key": "grade",
+      "tags": ["示例", "基本情况"],
+      "content": {
+        "type": "single",
+        "title": "你目前就读的年级是？",
+        "options": ["大一", "大二", "大三", "大四", "研究生", "其他"]
+      }
+    },
+    {
+      "key": "age",
+      "tags": ["示例", "基本情况"],
+      "content": {
+        "type": "number",
+        "title": "你的年龄是多少周岁？",
+        "num_min": 0,
+        "num_max": 120,
+        "integer_only": true
+      }
+    },
+    {
+      "key": "activities",
+      "tags": ["示例", "校园生活"],
+      "content": {
+        "type": "multiple",
+        "title": "你平时参加哪些课外活动？",
+        "options": ["体育运动", "阅读", "社团活动", "志愿服务", "文艺活动", "其他"],
+        "min_select": 1,
+        "max_select": 3
+      }
+    },
+    {
+      "key": "study-hours",
+      "tags": ["示例", "学习习惯"],
+      "content": {
+        "type": "number",
+        "title": "你平均每天课外学习多少小时？",
+        "num_min": 0,
+        "num_max": 24,
+        "integer_only": false
+      }
+    },
+    {
+      "key": "satisfaction",
+      "tags": ["示例", "校园生活"],
+      "content": {
+        "type": "single",
+        "title": "你对校园生活的总体满意度如何？",
+        "options": ["非常满意", "比较满意", "一般", "不太满意", "很不满意"]
+      }
+    },
+    {
+      "key": "suggestion",
+      "tags": ["示例", "意见反馈"],
+      "content": {
+        "type": "text",
+        "title": "你对改善校园生活有什么建议？",
+        "text_min_len": 2,
+        "text_max_len": 200
+      }
+    }
+  ]
+}

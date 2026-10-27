@@ -33,12 +33,9 @@ class JumpRule(BaseModel):
 
 # ---------- 题目 ----------
 
-class Question(BaseModel):
-    qid: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$", description="问卷内唯一短 ID，如 q1，跳转规则引用它")
+class QuestionContent(BaseModel):
     type: Literal["single", "multiple", "text", "number"]
     title: str
-    required: bool = False
-    order: int = 0
     # single / multiple
     options: list[str] = Field(default_factory=list)
     # multiple：至少/最多选择数量
@@ -51,7 +48,80 @@ class Question(BaseModel):
     num_min: Optional[float] = None
     num_max: Optional[float] = None
     integer_only: bool = False
+
+
+class Question(QuestionContent):
+    type: Optional[Literal["single", "multiple", "text", "number"]] = None
+    title: Optional[str] = None
+    qid: str = Field(pattern=r"^[A-Za-z0-9_-]{1,64}$")
+    required: bool = False
+    order: int = 0
     jump_rules: list[JumpRule] = Field(default_factory=list)
+    question_series_id: Optional[str] = None
+    question_version_id: Optional[str] = None
+
+
+class QuestionCreate(BaseModel):
+    content: QuestionContent
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    change_note: str = Field(default="初始版本", max_length=1000)
+
+
+class VersionCreate(BaseModel):
+    content: QuestionContent
+    parent_version_id: str
+    change_note: str = Field(default="", max_length=1000)
+    expected_revision: int
+
+
+class QuestionMetadata(BaseModel):
+    revision: int
+    name: Optional[str] = Field(default=None, max_length=200)
+    tags: Optional[list[str]] = Field(default=None, max_length=20)
+    archived: Optional[bool] = None
+    listed: Optional[bool] = None
+
+
+class RestoreQuestion(BaseModel):
+    source_version_id: str
+    expected_revision: int
+    change_note: str = Field(default="恢复历史版本", max_length=1000)
+
+
+class ShareQuestion(BaseModel):
+    username: str
+    version_ids: list[str] = Field(default_factory=list, max_length=200)
+    all_versions: bool = False
+    allow_fork: bool = True
+    expected_revision: int
+
+
+class BankCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=2000)
+
+
+class BankUpdate(BankCreate):
+    revision: int
+    archived: bool = False
+
+
+class BankItemCreate(BaseModel):
+    version_id: str
+
+
+class BankItemUpdate(BankItemCreate):
+    revision: int
+
+
+class StatsGrant(BaseModel):
+    question_version_id: str
+    username: str
+
+
+class StatsSharingUpdate(BaseModel):
+    version: int
+    grants: list[StatsGrant] = Field(default_factory=list, max_length=100)
 
 
 # ---------- 问卷 ----------

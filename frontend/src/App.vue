@@ -18,6 +18,8 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="7" rx="1.5"/><rect x="14" y="4" width="6" height="4" rx="1.5"/><rect x="14" y="11" width="6" height="9" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/></svg>
           <span>问卷工作台</span>
         </router-link>
+        <router-link to="/questions" class="nav-item"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5zM8 8h8M8 12h8M8 16h5"/></svg><span>题目中心</span></router-link>
+        <router-link to="/question-banks" class="nav-item"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2-3h9v16H3zM7 12h10M7 16h7"/></svg><span>我的题库</span></router-link>
       </nav>
 
       <div class="sidebar-spacer"></div>
@@ -60,6 +62,9 @@ const auth = useAuth()
 const username = computed(() => auth.username || '用户')
 const plainPage = computed(() => route.path === '/login' || route.path.startsWith('/s/'))
 const pageContext = computed(() => {
+  if (route.path.startsWith('/question-stats/')) return '跨问卷单题统计'
+  if (route.path.startsWith('/question-banks')) return '我的题库'
+  if (route.path.startsWith('/questions')) return '题目中心'
   if (route.path.startsWith('/editor/')) return '问卷编辑器'
   if (route.path.startsWith('/stats/')) return '数据分析'
   return '我的问卷'

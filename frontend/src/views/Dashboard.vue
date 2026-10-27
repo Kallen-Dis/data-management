@@ -99,7 +99,7 @@
           </div>
           <div v-if="survey.deadline" class="deadline-line">截止 {{ fmt(survey.deadline) }}</div>
           <div class="survey-actions">
-            <button class="btn-ghost" @click="openEditor(survey)">编辑问卷</button>
+            <button class="btn-ghost" @click="openEditor(survey)">{{ survey.ever_published ? '查看问卷' : '编辑问卷' }}</button>
             <button v-if="survey.status === 'draft' || survey.status === 'closed'" class="btn-primary" :disabled="busyId === survey.id" @click="publish(survey)">
               {{ busyId === survey.id ? '处理中…' : survey.status === 'closed' ? '重新发布' : '发布问卷' }}
             </button>

@@ -11,6 +11,9 @@ dist/
 
 # Local MongoDB data
 .mongo-data/
+.mongo-test-data/
+.backups/
+.runtime/
 
 # Local environment files
 .env

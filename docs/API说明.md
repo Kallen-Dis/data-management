@@ -1,5 +1,35 @@
 # API 说明
 
+## 第二阶段 API（2026-10-23）
+
+新增接口全部要求 JWT。`series_id` 是题目系列，`version_id` 是不可变版本，不能与问卷局部 qid 混用。详细请求体以运行中的 OpenAPI 为准。
+
+- `POST /api/questions`：创建系列及 v1，提交 `content / tags / change_note`。
+- `GET /api/questions`：按 `scope=mine|shared`、`search`、`archived`、`page / page_size` 列表，返回 `items / total`。
+- `GET /api/questions/{series_id}`、`GET .../versions`：授权后的题目详情和可见版本历史。
+- `PATCH /api/questions/{series_id}`：修改名称、标签、归档或展示状态，提交 `revision`。
+- `POST /api/questions/{series_id}/versions`：新版本，提交 `content / parent_version_id / expected_revision / change_note`。
+- `PUT /api/questions/{series_id}/draft`：同样结构保存工作草稿，不创建正式版本。
+- `POST /api/questions/{series_id}/restore`：提交 `source_version_id / expected_revision / change_note`，创建恢复版本；不覆盖历史。
+- `GET /api/question-versions/{version_id}`、`POST .../fork`：查看单版或派生自己的系列。
+- `POST /api/questions/{series_id}/shares`：`username / version_ids / all_versions / allow_fork / expected_revision`。
+- `DELETE /api/questions/{series_id}/shares/{user_id}?revision=...`：撤销共享。
+- `GET /api/questions/{series_id}/usages?version_id=...`：只返回有权查看的引用问卷。
+- `POST /api/question-banks`、`GET /api/question-banks`、`PATCH /api/question-banks/{bank_id}`：创建、列表、修改/归档题库，修改带 `revision`。
+- `GET /api/question-banks/{bank_id}/items`、`POST .../items`：条目列表或以 `version_id` 收录题目。
+- `PATCH /api/question-banks/{bank_id}/items/{item_id}`：`version_id / revision` 切换同系列固定版本；`DELETE` 仅移出，不删除题目。
+- `GET /api/question-versions/{version_id}/stats`：可选重复 `survey_ids`、`start / end`（ISO 时间）、文本 `offset / limit`。返回作答/答卷/问卷数量，及题型相关分布、数字聚合或授权后的文本分页。
+- `GET /api/questions/{series_id}/stats`：按版本分别返回统计，不自动合并不同版本。
+- `POST /api/surveys/{survey_id}/clone`：独立新草稿，不复制答卷和聚合授权。
+- `POST /api/surveys/{survey_id}/questions/{qid}/library`：保存题目并返回更新后的题目与问卷。
+- `PUT /api/surveys/{survey_id}/question-stats-sharing`：`version / grants`，每个 grant 包含 `question_version_id / username`，只授予聚合权限。
+
+原问卷创建/保存也接受 `{qid, question_version_id}` 最小引用，服务器填充内容；若携带与正式版本不一致的内容，返回 409。保存已发布/已关闭题目结构返回 409；发布、关闭会推进问卷 version。
+
+提交接口在答卷已保存但统计缓存失败时仍返回 201，并附加 `stats_pending=true`；后续统计读取会修复。业务权限不足返回 403；不存在/非法 ID 返回 404；陈旧修订返回 409；请求格式不合法返回 422。
+
+以下保留第一阶段 API 摘要；冲突行为以本节和当前 OpenAPI 为准。
+
 后端基于 FastAPI，启动后访问 **http://localhost:8000/docs** 可查看自动生成的
 OpenAPI 交互式文档（本文件为其文字版摘要）。除填写端接口外，其余接口均需
 请求头 `Authorization: Bearer <JWT>`。

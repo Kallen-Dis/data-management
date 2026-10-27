@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.db import responses as responses_col
 from app.deps import get_current_user
 from app.routers.surveys import _get_owned
+from app.serialization import json_value
 from app.services import stats_service
 
 router = APIRouter(prefix="/api/surveys", tags=["stats"])
@@ -33,7 +34,7 @@ def list_responses(survey_id: str, user: dict = Depends(get_current_user)):
     return [
         {
             "answers": d.get("answers", {}),
-            "snapshot": d.get("snapshot", {}),
+            "snapshot": json_value(d.get("snapshot", {})),
             "submitted_at": d.get("submitted_at"),
             "spent_seconds": d.get("spent_seconds", 0),
             "respondent": {
